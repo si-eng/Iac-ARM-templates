@@ -1,0 +1,349 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {},
+    "functions": [],
+    "variables": {
+
+    },
+    
+    "resources": [
+        {
+            "name": "[toLower('vmsakshistorage')]",
+            "type": "Microsoft.Storage/storageAccounts",
+            "apiVersion": "2021-04-01",
+            "location": "[resourceGroup().location]",
+            "tags": {
+                "displayName": "vmsakshi Storage Account"
+            },
+            "sku": {
+                "name": "Standard_LRS"
+            },
+            "kind": "Storage"
+        },
+        {
+            "name": "vmsakshi-PublicIP",
+            "type": "Microsoft.Network/publicIPAddresses",
+            "apiVersion": "2020-11-01",
+            "location": "[resourceGroup().location]",
+            "tags": {
+                "displayName": "PublicIPAddress"
+            },
+            "properties": {
+                "publicIPAllocationMethod": "Dynamic",
+                "dnsSettings": {
+                    "domainNameLabel": "[toLower('vmsakshi')]"
+                }
+            }
+        },
+        {
+            "name": "vmsakshi-nsg",
+            "type": "Microsoft.Network/networkSecurityGroups",
+            "apiVersion": "2020-11-01",
+            "location": "[resourceGroup().location]",
+            "properties": {
+                "securityRules": [
+                    {
+                        "name": "nsgRule1",
+                        "properties": {
+                            "description": "description",
+                            "protocol": "Tcp",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "22",
+                            "sourceAddressPrefix": "*",
+                            "destinationAddressPrefix": "*",
+                            "access": "Allow",
+                            "priority": 100,
+                            "direction": "Inbound"
+                        }
+                    },
+                    {
+                        "name": "nsgRule2",
+                        "properties": {
+                            "description": "description",
+                            "protocol": "Tcp",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "80",
+                            "sourceAddressPrefix": "*",
+                            "destinationAddressPrefix": "*",
+                            "access": "Allow",
+                            "priority": 101,
+                            "direction": "Inbound"
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "name": "vmsakshi-VirtualNetwork",
+            "type": "Microsoft.Network/virtualNetworks",
+            "apiVersion": "2020-11-01",
+            "location": "[resourceGroup().location]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Network/networkSecurityGroups', 'vmsakshi-nsg')]"
+            ],
+            "tags": {
+                "displayName": "vmsakshi-VirtualNetwork"
+            },
+            "properties": {
+                "addressSpace": {
+                    "addressPrefixes": [
+                        "10.0.0.0/16"
+                    ]
+                },
+                "subnets": [
+                    {
+                        "name": "vmsakshi-VirtualNetwork-Subnet",
+                        "properties": {
+                            "addressPrefix": "10.0.0.0/24",
+                            "networkSecurityGroup": {
+                                "id": "[resourceId('Microsoft.Network/networkSecurityGroups', 'vmsakshi-nsg')]"
+                            }
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "name": "vmsakshi-NetworkInterface",
+            "type": "Microsoft.Network/networkInterfaces",
+            "apiVersion": "2020-11-01",
+            "location": "[resourceGroup().location]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Network/publicIPAddresses', 'vmsakshi-PublicIP')]",
+                "[resourceId('Microsoft.Network/virtualNetworks', 'vmsakshi-VirtualNetwork')]"
+            ],
+            "tags": {
+                "displayName": "vmsakshi-NetworkInterface"
+            },
+            "properties": {
+                "ipConfigurations": [
+                    {
+                        "name": "ipConfig1",
+                        "properties": {
+                            "privateIPAllocationMethod": "Dynamic",
+                            "publicIPAddress": {
+                                "id": "[resourceId('Microsoft.Network/publicIPAddresses', 'vmsakshi-PublicIP')]"
+                            },
+                            "subnet": {
+                                "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', 'vmsakshi-VirtualNetwork', 'vmsakshi-VirtualNetwork-Subnet')]"
+                            }
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "name": "vmsakshi",
+            "type": "Microsoft.Compute/virtualMachines",
+            "apiVersion": "2021-03-01",
+            "location": "[resourceGroup().location]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Network/networkInterfaces', 'vmsakshi-NetworkInterface')]"
+            ],
+            "tags": {
+                "displayName": "vmsakshi"
+            },
+            "properties": {
+                "hardwareProfile": {
+                    "vmSize": "Standard_D1_v2"
+                },
+                "osProfile": {
+                    "computerName": "vmsakshi",
+                    "adminUsername": "Sakshi",
+                    "adminPassword": "Sakshi@12345"
+                    
+                },
+                "storageProfile": {
+                    "imageReference": {
+                        "publisher": "Canonical",
+                        "offer": "UbuntuServer",
+                        "sku": "18.04-LTS",
+                        "version": "latest"
+                    },
+                    "osDisk": {
+                        "name": "vmsakshi-OSDisk",
+                        "caching": "ReadWrite",
+                        "createOption": "FromImage"
+                    }
+                },
+                "networkProfile": {
+                    "networkInterfaces": [
+                        {
+                            "id": "[resourceId('Microsoft.Network/networkInterfaces', 'vmsakshi-NetworkInterface')]"
+                        }
+                    ]
+                },
+                "diagnosticsProfile": {
+                    "bootDiagnostics": {
+                        "enabled": true,
+                        "storageUri": "[reference(resourceId('Microsoft.Storage/storageAccounts/', toLower('vmsakshistorage'))).primaryEndpoints.blob]"
+                    }
+                }
+            }
+        },
+        {
+      "name": "vmsakshi-Snapshot",
+      "type": "Microsoft.Compute/snapshots",
+      "apiVersion": "2021-12-01",
+      "location": "[resourceGroup().location]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Compute/virtualMachines', 'vmsakshi')]"
+      ],
+      "properties": {
+        "creationData": {
+          "createOption": "Copy",
+          "sourceResourceId": "[resourceId('Microsoft.Compute/disks', 'vmsakshi-OSDisk')]"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Compute/disks",
+      "apiVersion": "2022-03-02",
+      "name": "disk-sak",
+      "location": "[resourceGroup().location]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Compute/snapshots', 'vmsakshi-Snapshot')]"
+      ],
+      "tags": {},
+      "sku": {
+        "name": "Standard_LRS"
+      },
+      "properties": {
+        "creationData": {
+          "createOption": "copy",
+          "sourceResourceId": "[resourceId('Microsoft.Compute/snapshots', 'vmsakshi-Snapshot')]"
+        },
+        "diskSizeGB": 32,
+        "encryption": {
+          "type": "EncryptionAtRestWithPlatformKey"
+        }
+      }
+                
+        },
+              
+         {
+      
+            "type": "Microsoft.Compute/images",
+            "apiVersion": "2021-07-01",
+            "name": "myImage",
+            "location": "[resourceGroup().location]",
+            "properties": {
+                "hyperVGeneration": "V1",
+                "storageProfile": {
+                "osDisk": {
+                    "osState": "Generalized",
+                    "osType": "linux",
+                    "managedDisk": {
+                    "id": "[resourceId('Microsoft.Compute/disks', 'disk-sak')]"
+                    }
+                }
+                }
+            } 
+         },
+        
+        
+        
+        {
+            
+            "type": "Microsoft.Compute/galleries",
+            "apiVersion": "2021-10-01",
+            "name": "imagegall",
+            "location": "[resourceGroup().location]",
+            "tags": {},
+            "properties": {
+                "description": "for image galleries"
+            
+        }
+        },
+        {
+            "type": "Microsoft.Compute/galleries/images",
+            "apiVersion": "2021-07-01",
+            "name": "[concat('imagegall', '/', 'myImageDefinition')]",
+            "location": "[resourceGroup().location]",
+            "properties": {
+                "osType": "Linux",
+                "osState": "Generalized",
+                "identifier": {
+                    "publisher": "Sakshi",
+                    "offer": "sak",
+                    "sku": "sak1"
+                },
+                "recommended": {
+                    "vCPUs": {
+                        "min": 1,
+                        "max": 16
+                    },
+                    "memory": {
+                        "min": 1,
+                        "max": 32
+                    }
+                },
+                "hyperVGeneration": "V1",
+                "architecture": "x64"
+            }
+        
+        },
+       {
+         "type": "Microsoft.Compute/galleries/images/versions",
+            "apiVersion": "2021-10-01",
+            "name": "[concat('imagegall', '/', 'myImageDefinition', '/', '11.12.13')]",
+            "location": "[resourceGroup().location]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Compute/galleries/images', 'imagegall', 'myImageDefinition')]",
+                "[resourceId('Microsoft.Compute/images', 'myImage')]"
+            ],
+            "tags": {},
+            "properties": {
+                "publishingProfile": {
+                    "replicaCount": 1,
+                    "targetRegions":[
+                         
+                        {
+                            "name": "Canada Central",
+                            "regionalReplicaCount": 1,
+                            "storageAccountType": "Standard_ZRS"
+                            
+                        }
+                    ],
+                
+                    "excludeFromLatest":  false,
+                    "endOfLifeDate": "2024-05-02T18:30:00.000Z",
+                    "replicationMode": "Full"
+                },
+                "storageProfile": {
+                    "source": {
+                        "id": "[resourceId('Microsoft.Compute/images', 'myImage')]"
+                    }
+                
+            
+
+            }
+        
+            }
+       },
+        {
+           
+        "type": "Microsoft.Compute/virtualMachines/extensions",
+        "apiVersion": "2021-03-01",
+        "name": "[concat('vmsakshi', '/customScript')]",
+        "location": "[resourceGroup().location]",
+        "dependsOn": [
+            "[concat('Microsoft.Compute/virtualMachines/', 'vmsakshi')]"
+        ],
+        "properties": {
+            "publisher": "Microsoft.Azure.Extensions",
+            "type": "CustomScript",
+            "typeHandlerVersion": "2.1",
+            "autoUpgradeMinorVersion": true,
+            "settings": {
+            "fileUris": [
+                "https://sakvmmm.blob.core.windows.net/scripts/script.sh"
+            ],
+            "commandToExecute": "bash script.sh"
+            }
+        }
+        }
+       ],
+ "outputs": {}
+       }
